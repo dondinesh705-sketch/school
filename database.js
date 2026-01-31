@@ -84,6 +84,32 @@ const initDb = () => {
         db.prepare('INSERT INTO users (username, password, role) VALUES (?, ?, ?)').run('admin', hash, 'admin');
         console.log('Default admin created: admin / admin123');
     }
+
+    // Repair missing student accounts
+    const studentsWithoutUsers = db.prepare(`
+        SELECT * FROM students 
+        WHERE id NOT IN (SELECT student_id FROM users WHERE student_id IS NOT NULL)
+    `).all();
+
+    if (studentsWithoutUsers.length > 0) {
+        console.log(`Notice: Creating user accounts for ${studentsWithoutUsers.length} students...`);
+        try {
+            db.transaction(() => {
+                const insertUser = db.prepare('INSERT INTO users (username, password, role, student_id) VALUES (?, ?, ?, ?)');
+                for (const student of studentsWithoutUsers) {
+                    // Check if username already exists to avoid conflict
+                    const userExists = db.prepare('SELECT id FROM users WHERE username = ?').get(student.roll_number);
+                    if (!userExists) {
+                        const hash = bcrypt.hashSync(student.roll_number, 10);
+                        insertUser.run(student.roll_number, hash, 'student', student.id);
+                    }
+                }
+            })();
+            console.log('Success: Student user accounts repaired.');
+        } catch (err) {
+            console.error('Error: Failed to repair student accounts:', err.message);
+        }
+    }
 };
 
 initDb();
