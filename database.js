@@ -1,0 +1,63 @@
+const Database = require('better-sqlite3');
+const path = require('path');
+const bcrypt = require('bcryptjs');
+const fs = require('fs');
+
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const dbPath = path.join(dataDir, 'attendance.db');
+const db = new Database(dbPath, { verbose: console.log });
+
+// Initialize tables
+const initDb = () => {
+    // Users table (for login)
+    db.prepare(`
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT CHECK(role IN ('admin', 'student')) NOT NULL,
+            student_id INTEGER,
+            FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE
+        )
+    `).run();
+
+    // Students table
+    db.prepare(`
+        CREATE TABLE IF NOT EXISTS students (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            roll_number TEXT NOT NULL,
+            admin_id INTEGER NOT NULL,
+            FOREIGN KEY(admin_id) REFERENCES users(id) ON DELETE CASCADE,
+            UNIQUE(roll_number, admin_id)
+        )
+    `).run();
+
+    // Attendance table
+    db.prepare(`
+        CREATE TABLE IF NOT EXISTS attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER NOT NULL,
+            date TEXT NOT NULL, -- YYYY-MM-DD
+            status TEXT CHECK(status IN ('P', 'A', 'L')) NOT NULL,
+            FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE,
+            UNIQUE(student_id, date)
+        )
+    `).run();
+
+    // Create default admin if not exists
+    const adminCheck = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
+    if (!adminCheck) {
+        const hash = bcrypt.hashSync('admin123', 10);
+        db.prepare('INSERT INTO users (username, password, role) VALUES (?, ?, ?)').run('admin', hash, 'admin');
+        console.log('Default admin created: admin / admin123');
+    }
+};
+
+initDb();
+
+module.exports = db;
