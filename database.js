@@ -25,17 +25,45 @@ const initDb = () => {
         )
     `).run();
 
-    // Students table
-    db.prepare(`
-        CREATE TABLE IF NOT EXISTS students (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            roll_number TEXT NOT NULL,
-            admin_id INTEGER NOT NULL,
-            FOREIGN KEY(admin_id) REFERENCES users(id) ON DELETE CASCADE,
-            UNIQUE(roll_number, admin_id)
-        )
-    `).run();
+    // Students table migration check
+    const tableInfo = db.prepare("PRAGMA table_info(students)").all();
+    const hasAdminId = tableInfo.some(col => col.name === 'admin_id');
+
+    if (tableInfo.length > 0 && !hasAdminId) {
+        console.log('Notice: Migrating students table to add missing admin_id column...');
+        try {
+            db.transaction(() => {
+                db.prepare('ALTER TABLE students RENAME TO students_old').run();
+                db.prepare(`
+                    CREATE TABLE students (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        roll_number TEXT NOT NULL,
+                        admin_id INTEGER NOT NULL,
+                        FOREIGN KEY(admin_id) REFERENCES users(id) ON DELETE CASCADE,
+                        UNIQUE(roll_number, admin_id)
+                    )
+                `).run();
+                db.prepare('INSERT INTO students (id, name, roll_number, admin_id) SELECT id, name, roll_number, 1 FROM students_old').run();
+                db.prepare('DROP TABLE students_old').run();
+            })();
+            console.log('Success: Migration completed.');
+        } catch (err) {
+            console.error('Error: Migration failed:', err.message);
+        }
+    } else {
+        // Standard creation if it doesn't exist
+        db.prepare(`
+            CREATE TABLE IF NOT EXISTS students (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                roll_number TEXT NOT NULL,
+                admin_id INTEGER NOT NULL,
+                FOREIGN KEY(admin_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(roll_number, admin_id)
+            )
+        `).run();
+    }
 
     // Attendance table
     db.prepare(`
